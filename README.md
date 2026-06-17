@@ -68,7 +68,24 @@ If any field is invalid, the result is an `Invalid` holding the accumulated erro
 
 ## The two styles
 
-Both accumulate errors. Pick by where the data comes from.
+**Same outcome.** Both styles produce a `Validation<E, A>` that accumulates *every* error
+in a single pass — neither is fail-fast (that is `andThen`). `Person.kt` validates an
+equivalent `Person` both ways: `UnvalidatedPerson.validate()` via `combine`, and
+`Person.create(...)` via the DSL.
+
+**Dual mechanism.** They express the same intent differently:
+
+| | Field-combine | DSL `validation { }` |
+| --- | --- | --- |
+| Style | expression / functional | imperative blocks |
+| Accumulation | immutable `Invalid(errors1 + errors2)` in `combine` | mutable list in `ValidationScope` |
+| Value flow | validated values are carried into `transform` (already typed) | values are dropped; the object is rebuilt in `build { }` |
+| Construction guarantee | `Valid` only exists if every field is `Valid` (enforced by types) | `build` runs only if no error was recorded (enforced at runtime) |
+
+The key practical consequence is the *value flow* row: `combine`'s `transform` receives the
+**parsed** values (e.g. `String` -> `CivilStatus`), so field-combine shines when validation
+**transforms** raw input. The DSL's `check(condition, error)` only tests a boolean and hands
+nothing back, so it fits **invariant checks on already-typed values**.
 
 ### Field-combine (preferred for raw input)
 
@@ -112,6 +129,18 @@ fun RegistrationForm.validate(): Validation<RegistrationError, Account> = valida
 
 `addErrorsOf(...)` reuses an existing validator, so a rule lives in exactly one place — no
 duplicated limits between the `combine` and DSL paths.
+
+### When to use which
+
+- **Field-combine** — raw `Unvalidated…` input where each field must be
+  **parsed/transformed** into a domain type, with one reusable validator per field. Limited
+  to arity 3–8 (plus the two-validation extension).
+- **DSL** — values are already typed and you mostly **check invariants**, you need
+  conditional or cross-field logic, or you want to reuse validators via `addErrorsOf(...)`
+  alongside ad-hoc rules (as in `Person.create`). No arity cap, so it also scales to many
+  fields.
+- **Neither** — when a step *depends* on the result of a previous one, use `andThen` (see
+  [Dependent steps](#dependent-steps)).
 
 ## Dependent steps
 
