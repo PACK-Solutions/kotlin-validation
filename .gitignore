@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+
+# Kotlin
+.kotlin/
+
+# IntelliJ IDEA / JetBrains
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# JetBrains Junie (AI assistant local state)
+.junie/
+
+# macOS
+.DS_Store
+
+# Log files
+*.log
