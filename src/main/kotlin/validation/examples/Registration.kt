@@ -1,16 +1,17 @@
 package validation.examples
 
-import validation.Validation
+import validation.Validated
 import validation.invalid
 import validation.valid
-import validation.validation
+import validation.validated
 
 /**
  * Exemple : validation d'un formulaire d'inscription.
  *
- * Domaine familier de validation de formulaire. Utilise le DSL [validation] : chaque règle
+ * Domaine familier de validation de formulaire. Utilise le builder [validated] : chaque règle
  * (email, robustesse du mot de passe, âge, conditions, confirmation) est contrôlée et toutes
- * les erreurs sont accumulées avant de construire le compte.
+ * les erreurs sont accumulées avant de construire le compte. (kotlin-result fournit bien un
+ * `binding { }`, mais il est *fail-fast* — d'où le builder accumulant maison.)
  */
 
 /** Adresse email validée. */
@@ -52,7 +53,7 @@ private fun isStrong(password: String): Boolean =
  * Valide un formulaire d'inscription et produit un [Account] conforme.
  * Accumule toutes les erreurs en un seul passage.
  */
-fun RegistrationForm.validate(): Validation<RegistrationError, Account> = validation {
+fun RegistrationForm.validate(): Validated<RegistrationError, Account> = validated {
     addErrorsOf(validateEmail(email))
 
     check(password.length >= MIN_PASSWORD_LENGTH, RegistrationError.PasswordTooShort(password.length))
@@ -64,7 +65,7 @@ fun RegistrationForm.validate(): Validation<RegistrationError, Account> = valida
     build { Account(Email(email), age) }
 }
 
-private fun validateEmail(value: String): Validation<RegistrationError, Email> {
+private fun validateEmail(value: String): Validated<RegistrationError, Email> {
     val wellFormed = value.count { it == '@' } == 1 &&
         value.substringBefore('@').isNotBlank() &&
         value.substringAfter('@').let { it.contains('.') && !it.startsWith('.') && !it.endsWith('.') }

@@ -11,6 +11,8 @@ repositories {
 }
 
 dependencies {
+    implementation("com.michael-bull.kotlin-result:kotlin-result:2.3.1")
+
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
 }

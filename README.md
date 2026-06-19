@@ -1,38 +1,42 @@
 # kotlin-validation
 
-A tiny Kotlin library for **error-accumulating validation** — the applicative validation
-pattern, *not* fail-fast. Validating a form or request collects **every** error in a single
-pass instead of stopping at the first failure.
+Worked examples of **error-accumulating validation** — the applicative validation pattern,
+*not* fail-fast — built on top of [michaelbull/kotlin-result](https://github.com/michaelbull/kotlin-result).
+Validating a form or request collects **every** error in a single pass instead of stopping at
+the first failure.
 
-The API is deliberately **validation-oriented, not FP/category-theory jargon**: you will find
-`combine`, `validateEach`, and `andThen` — never `zip`, `ap`, `mapN`, `sequence`, `traverse`,
-or `flatMap`.
+kotlin-result is fail-fast by design (`andThen`, `binding`). It does ship a `zipOrAccumulate`,
+but it is capped at **5 arguments**, has **no accumulation over collections**, and no
+accumulating builder. This repo adds the missing **accumulation layer** as a thin set of
+helpers in [`Accumulate.kt`](src/main/kotlin/validation/Accumulate.kt) and shows four worked
+examples on top of it.
 
 ## Why
 
-Fail-fast validation (e.g. throwing on the first bad field, or short-circuiting `Result`
-chains) reports one problem at a time. A user fixes it, resubmits, and discovers the next
-one. Error-accumulating validation runs all independent checks and reports them together:
+Fail-fast validation (throwing on the first bad field, or short-circuiting a `Result` chain)
+reports one problem at a time. A user fixes it, resubmits, and discovers the next one.
+Error-accumulating validation runs all independent checks and reports them together:
 
 ```text
-Invalid(errors = [
-  FirstNameTooLong(length = 80),
-  InvalidCountryCode(value = "XX"),
+Err([
+  FirstNameTooLong(length = 51),
+  InvalidCountryCode(value = "FRA"),
   NationalitiesEmpty,
 ])
 ```
 
 ## Core concept
 
-`Validation<E, A>` is a sealed interface with exactly two cases:
+The carrier type is kotlin-result's `Result<V, E>` — note the order **value first, error
+second** (the opposite of an `Either`/`Validation<E, A>` signature). The error branch carries a
+**`List<E>`** so multiple errors accumulate rather than short-circuit:
 
 ```kotlin
-data class Valid<out A>(val value: A) : Validation<Nothing, A>
-data class Invalid<out E>(val errors: List<E>) : Validation<E, Nothing>
+typealias Validated<E, A> = Result<A, List<E>>
 ```
 
-Construct them with `valid(...)` / `invalid(...)`. Combining two `Invalid`s **concatenates
-their error lists** rather than short-circuiting — that is the whole point.
+Construct results with `valid(value)` (= `Ok`) and `invalid(error)` (= `Err(listOf(error))`).
+Combining failures **concatenates their error lists** — that is the whole point.
 
 Error types are sealed hierarchies of typed cases that carry the offending data
 (`FirstNameTooLong(length)`, `InvalidCountryCode(value)`), never strings. Singleton cases are
@@ -40,82 +44,60 @@ Error types are sealed hierarchies of typed cases that carry the offending data
 
 ## Quick start
 
-Define an unvalidated input, write one validator per field returning
-`Validation<…Error, FieldType>`, then assemble them with `combine`:
+Define an unvalidated input, write one validator per field returning `Validated<…Error,
+FieldType>`, then assemble them with `accumulate`:
 
 ```kotlin
-data class UnvalidatedOrder(
-    val lines: List<UnvalidatedOrderLine>,
-    val shipping: UnvalidatedShippingAddress,
-    val currency: String,
-)
-
-data class Order(
-    val lines: List<OrderLine>,
-    val shipping: ShippingAddress,
-    val currency: CurrencyCode,
-)
-
-fun UnvalidatedOrder.validate(): Validation<OrderError, Order> = combine(
+fun UnvalidatedOrder.validate(): Validated<OrderError, Order> = accumulate(
     validateLines(lines),
     validateAddress(shipping),
     validateCurrency(currency),
 ) { lines, shipping, currency -> Order(lines, shipping, currency) }
 ```
 
-If any field is invalid, the result is an `Invalid` holding the accumulated errors from
-*all* failing fields; otherwise a `Valid<Order>`.
+If any field is invalid, the result is an `Err` holding the accumulated errors from *all*
+failing fields; otherwise `Ok(Order(...))`.
 
-## The two styles
+## The accumulation layer (`Accumulate.kt`)
 
-**Same outcome.** Both styles produce a `Validation<E, A>` that accumulates *every* error
-in a single pass — neither is fail-fast (that is `andThen`). `Person.kt` validates an
-equivalent `Person` both ways: `UnvalidatedPerson.validate()` via `combine`, and
-`Person.create(...)` via the DSL.
-
-**Dual mechanism.** They express the same intent differently:
-
-| | Field-combine | DSL `validation { }` |
+| Helper | What it does | Replaces / why |
 | --- | --- | --- |
-| Style | expression / functional | imperative blocks |
-| Accumulation | immutable `Invalid(errors1 + errors2)` in `combine` | mutable list in `ValidationScope` |
-| Value flow | validated values are carried into `transform` (already typed) | values are dropped; the object is rebuilt in `build { }` |
-| Construction guarantee | `Valid` only exists if every field is `Valid` (enforced by types) | `build` runs only if no error was recorded (enforced at runtime) |
+| `accumulate(v1, …, vN, transform)` | Combine **2–8** independent results, concatenating every error | kotlin-result's `zipOrAccumulate` caps at 5 args |
+| `Iterable<A>.validateEach { … }` | Validate each element, accumulate per-element errors | no collection accumulation in kotlin-result |
+| `Iterable<Validated<E, A>>.combineAll()` | Fold a list of results, accumulating errors | `combine` in kotlin-result is fail-fast |
+| `validated { check(…); addErrorsOf(…); build { … } }` | Imperative accumulating builder | `binding { }` in kotlin-result is fail-fast |
 
-The key practical consequence is the *value flow* row: `combine`'s `transform` receives the
-**parsed** values (e.g. `String` -> `CivilStatus`), so field-combine shines when validation
-**transforms** raw input. The DSL's `check(condition, error)` only tests a boolean and hands
-nothing back, so it fits **invariant checks on already-typed values**.
+Everything **fail-fast / non-accumulating** is reused straight from kotlin-result: `andThen`,
+`recover`/`getOr`/`getOrElse`, `map`, `mapError`, `fold`, `get`/`getError`.
 
 ### Field-combine (preferred for raw input)
 
-Validate independent fields and merge them with `combine`. Collection fields use
+Validate independent fields and merge them with `accumulate`. Collection fields use
 `validateEach` so every bad element is reported, not just the first:
 
 ```kotlin
-private fun validateLines(lines: List<UnvalidatedOrderLine>): Validation<OrderError, List<OrderLine>> =
+private fun validateLines(lines: List<UnvalidatedOrderLine>): Validated<OrderError, List<OrderLine>> =
     if (lines.isEmpty()) invalid(OrderError.EmptyCart)
     else lines.validateEach(::validateLine)
 
-private fun validateLine(line: UnvalidatedOrderLine): Validation<OrderError, OrderLine> = combine(
+private fun validateLine(line: UnvalidatedOrderLine): Validated<OrderError, OrderLine> = accumulate(
     validateSku(line),
     validateQuantity(line),
     validatePrice(line),
 ) { sku, quantity, price -> OrderLine(sku, quantity, price) }
 ```
 
-`combine` comes as a two-validation extension (`a.combine(b) { … }`) and as top-level
-overloads for **arity 3–8**. Use `combineAll()` to fold a `List<Validation<E, A>>` into a
-`Validation<E, List<A>>`.
+`accumulate` is overloaded for **arity 2–8** — so `Person.validate` can combine its 6 fields in
+one call, above kotlin-result's native `zipOrAccumulate` limit of 5.
 
-### DSL
+### Builder (`validated { }`)
 
-`validation { … }` opens a `ValidationScope<E>` where checks accumulate imperatively and
-`build { }` produces `Valid` only if no error was collected:
+`validated { … }` opens an `Accumulator<E>` where checks accumulate imperatively and
+`build { }` produces `Ok` only if no error was collected:
 
 ```kotlin
-fun RegistrationForm.validate(): Validation<RegistrationError, Account> = validation {
-    addErrorsOf(validateEmail(email))                  // fold a nested Validation's errors in
+fun RegistrationForm.validate(): Validated<RegistrationError, Account> = validated {
+    addErrorsOf(validateEmail(email))                  // fold a nested result's errors in
 
     check(password.length >= MIN_PASSWORD_LENGTH, RegistrationError.PasswordTooShort(password.length))
     check(isStrong(password), RegistrationError.PasswordTooWeak)
@@ -127,30 +109,27 @@ fun RegistrationForm.validate(): Validation<RegistrationError, Account> = valida
 }
 ```
 
-`addErrorsOf(...)` reuses an existing validator, so a rule lives in exactly one place — no
-duplicated limits between the `combine` and DSL paths.
+`addErrorsOf(...)` reuses an existing field validator, so a rule lives in exactly one place —
+no duplicated limits between the `accumulate` and builder paths (see `Person.create`).
 
 ### When to use which
 
-- **Field-combine** — raw `Unvalidated…` input where each field must be
-  **parsed/transformed** into a domain type, with one reusable validator per field. Limited
-  to arity 3–8 (plus the two-validation extension).
-- **DSL** — values are already typed and you mostly **check invariants**, you need
-  conditional or cross-field logic, or you want to reuse validators via `addErrorsOf(...)`
-  alongside ad-hoc rules (as in `Person.create`). No arity cap, so it also scales to many
-  fields.
-- **Neither** — when a step *depends* on the result of a previous one, use `andThen` (see
-  [Dependent steps](#dependent-steps)).
+- **Field-combine (`accumulate`)** — raw `Unvalidated…` input where each field is
+  **parsed/transformed** into a domain type; `transform` receives the already-typed values.
+- **Builder (`validated`)** — values are already typed and you mostly **check invariants**, need
+  conditional/cross-field logic, or want to reuse validators via `addErrorsOf(...)` alongside
+  ad-hoc rules.
+- **Neither** — when a step *depends* on the result of a previous one, use `andThen` (below).
 
 ## Dependent steps
 
-`combine` is for *independent* checks. When a step needs the result of a previous one, use
-`andThen` (the fail-fast, dependent path): accumulate the format errors first, then chain the
-dependent check.
+`accumulate` is for *independent* checks. When a step needs the result of a previous one, use
+kotlin-result's `andThen` (the fail-fast, dependent path): accumulate the format errors first,
+then chain the dependent check.
 
 ```kotlin
-fun TransferRequest.validate(balanceCents: Long): Validation<TransferError, Transfer> =
-    validateAmount(amountCents).combine(validateIban(targetIban)) { amount, target ->
+fun TransferRequest.validate(balanceCents: Long): Validated<TransferError, Transfer> =
+    accumulate(validateAmount(amountCents), validateIban(targetIban)) { amount, target ->
         Transfer(amount, target)
     }.andThen { transfer ->
         if (transfer.amount.cents <= balanceCents) valid(transfer)
@@ -158,82 +137,17 @@ fun TransferRequest.validate(balanceCents: Long): Validation<TransferError, Tran
     }
 ```
 
-Prefer `combine` whenever checks are independent so all errors surface; reach for `andThen`
+Prefer `accumulate` whenever checks are independent so all errors surface; reach for `andThen`
 only when a step genuinely depends on the previous result.
-
-## API reference
-
-### Construct & consume — `Validation.kt`
-
-| Function | Signature |
-| --- | --- |
-| `valid` | `fun <A> valid(value: A): Validation<Nothing, A>` |
-| `invalid` | `fun <E> invalid(error: E): Validation<E, Nothing>` / `invalid(errors: List<E>)` |
-| `toValidation` | `fun <E, A> A?.toValidation(error: () -> E): Validation<E, A>` |
-| `fold` | `fun <R> fold(ifInvalid: (List<E>) -> R, ifValid: (A) -> R): R` |
-| `getOrNull` | `fun getOrNull(): A?` |
-| `errorsOrEmpty` | `fun errorsOrEmpty(): List<E>` |
-| `onValid` / `onInvalid` | `fun onValid(action: (A) -> Unit): Validation<E, A>` (and `onInvalid`) |
-| `isValid` / `isInvalid` | `val isValid: Boolean`, `val isInvalid: Boolean` |
-
-### Transform — `ValidationTransforms.kt`
-
-| Function | Signature |
-| --- | --- |
-| `map` | `fun <E, A, B> Validation<E, A>.map(f: (A) -> B): Validation<E, B>` |
-| `mapError` | `fun <E1, E2, A> Validation<E1, A>.mapError(f: (E1) -> E2): Validation<E2, A>` |
-| `getOrElse` | `fun <E, A> Validation<E, A>.getOrElse(default: (List<E>) -> A): A` |
-| `toResult` | `fun <E, A> Validation<E, A>.toResult(onErrors: (List<E>) -> Throwable): Result<A>` |
-
-### Combine / accumulate — `ValidationCombine.kt`
-
-| Function | Signature |
-| --- | --- |
-| `combine` (extension) | `Validation<E, A>.combine(other: Validation<E, B>, transform: (A, B) -> R): Validation<E, R>` |
-| `combine` (top-level) | `combine(v1, …, vN, transform)` — **arity 3–8** |
-| `combineAll` | `fun <E, A> Iterable<Validation<E, A>>.combineAll(): Validation<E, List<A>>` |
-| `validateEach` | `fun <E, A, B> Iterable<A>.validateEach(validate: (A) -> Validation<E, B>): Validation<E, List<B>>` |
-
-### Sequence — `ValidationSequencing.kt`
-
-| Function | Signature |
-| --- | --- |
-| `andThen` | `fun <E, A, B> Validation<E, A>.andThen(next: (A) -> Validation<E, B>): Validation<E, B>` (fail-fast / dependent) |
-| `orElse` | `fun <E, A> Validation<E, A>.orElse(recover: (List<E>) -> Validation<E, A>): Validation<E, A>` (recovery) |
-
-### DSL — `ValidationDsl.kt`
-
-```kotlin
-fun <E, A> validation(block: ValidationScope<E>.() -> Validation<E, A>): Validation<E, A>
-
-class ValidationScope<E> {
-    fun check(condition: Boolean, error: E)
-    fun ensure(condition: Boolean, error: E)
-    fun addError(error: E)
-    fun addErrors(errors: List<E>)
-    fun addErrorsOf(validation: Validation<E, *>)
-    fun <A> build(value: () -> A): Validation<E, A>
-}
-```
-
-### Reusable rules — `Validator.kt`
-
-```kotlin
-typealias Validator<E, A> = (A) -> Validation<E, A>
-
-fun <E, A> validator(error: (A) -> E, predicate: (A) -> Boolean): Validator<E, A>
-infix fun <E, A> Validator<E, A>.and(other: Validator<E, A>): Validator<E, A>
-fun <E, A> allOf(vararg validators: Validator<E, A>): Validator<E, A>
-```
 
 ## Examples
 
 Worked examples live in `src/main/kotlin/validation/examples/`:
 
-- **`Person.kt`** — field-combine and the `validation { }` DSL, with `validateEach` over a list of nationalities.
-- **`Order.kt`** — nested `combine` and `validateEach` over order lines.
-- **`MoneyTransfer.kt`** — `combine` for format checks, then `andThen` for the balance check.
-- **`Registration.kt`** — full DSL style.
+- **`Person.kt`** — field-combine (`accumulate`, arity 6) and the `validated { }` builder, with `validateEach` over a list of nationalities.
+- **`Order.kt`** — nested `accumulate` and `validateEach` over order lines.
+- **`MoneyTransfer.kt`** — `accumulate` for format checks, then `andThen` for the balance check.
+- **`Registration.kt`** — full `validated { }` builder style.
 - **`Demo.kt`** — a `main` that runs them all.
 
 ## Build & run
@@ -241,20 +155,21 @@ Worked examples live in `src/main/kotlin/validation/examples/`:
 ```bash
 ./gradlew build                                            # compile + test
 ./gradlew test                                             # run all tests
-./gradlew test --tests "validation.ValidationTest"         # a single test class
+./gradlew test --tests "validation.AccumulateTest"         # the accumulation-layer tests
 ./gradlew test --tests "validation.examples.*"             # all example tests
 ./gradlew run                                              # run the demo (validation.examples.DemoKt)
 ```
 
-Stack: **Kotlin 2.2.0**, **JVM toolchain 21**, **JUnit 5** (`useJUnitPlatform`).
+Stack: **Kotlin 2.2.0**, **JVM toolchain 21**, **JUnit 5** (`useJUnitPlatform`),
+**kotlin-result 2.3.1**.
 
 ## Design notes
 
-- **Accumulation is the central design point** — `combine` concatenates error lists; use it
-  to validate independent fields and collect every error in one pass.
-- **`getOrElse` is an extension, not a member.** A member would erase the value type to
-  `Nothing` on `Invalid` and throw `ClassCastException` when the fallback is used. Value-typed
-  accessors stay as extensions for this reason.
+- **Accumulation is the central design point** — `accumulate`/`validateEach`/`combineAll`
+  concatenate error lists; use them to validate independent fields/elements and collect every
+  error in one pass.
+- **kotlin-result supplies the fail-fast half** — `andThen`, `recover`, `map`, `mapError`,
+  `fold`, `getOr` are used directly; this repo only adds what's missing for accumulation.
 - **Validators are deterministic** — e.g. birth-date checks compare against a fixed earliest
   date, never `now()`, so tests are stable.
 - Domain primitives use `@JvmInline value class` (`BirthDate`, `CountryCode`, `Money`, `Iban`).

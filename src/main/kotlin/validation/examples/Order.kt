@@ -1,7 +1,7 @@
 package validation.examples
 
-import validation.Validation
-import validation.combine
+import validation.Validated
+import validation.accumulate
 import validation.invalid
 import validation.valid
 import validation.validateEach
@@ -10,7 +10,7 @@ import validation.validateEach
  * Exemple : validation d'une commande e-commerce.
  *
  * Illustre l'accumulation pure : chaque ligne fautive est signalée (via [validateEach]),
- * et tous les défauts (panier, adresse, devise) remontent en un seul passage (via [combine]).
+ * et tous les défauts (panier, adresse, devise) remontent en un seul passage (via [accumulate]).
  */
 
 /** Référence article (SKU). */
@@ -71,42 +71,42 @@ sealed interface OrderError {
 /** Devises acceptées par la boutique. */
 private val SUPPORTED_CURRENCIES = setOf("EUR", "USD", "GBP")
 
-private fun validateLine(line: UnvalidatedOrderLine): Validation<OrderError, OrderLine> = combine(
+private fun validateLine(line: UnvalidatedOrderLine): Validated<OrderError, OrderLine> = accumulate(
     validateSku(line),
     validateQuantity(line),
     validatePrice(line),
 ) { sku, quantity, price -> OrderLine(sku, quantity, price) }
 
-private fun validateSku(line: UnvalidatedOrderLine): Validation<OrderError, Sku> =
+private fun validateSku(line: UnvalidatedOrderLine): Validated<OrderError, Sku> =
     if (line.sku.isNotBlank()) valid(Sku(line.sku)) else invalid(OrderError.BlankSku(line.quantity))
 
-private fun validateQuantity(line: UnvalidatedOrderLine): Validation<OrderError, Int> =
+private fun validateQuantity(line: UnvalidatedOrderLine): Validated<OrderError, Int> =
     if (line.quantity > 0) valid(line.quantity)
     else invalid(OrderError.NonPositiveQuantity(line.sku, line.quantity))
 
-private fun validatePrice(line: UnvalidatedOrderLine): Validation<OrderError, Long> =
+private fun validatePrice(line: UnvalidatedOrderLine): Validated<OrderError, Long> =
     if (line.unitPriceCents >= 0) valid(line.unitPriceCents)
     else invalid(OrderError.NegativePrice(line.sku, line.unitPriceCents))
 
-private fun validateLines(lines: List<UnvalidatedOrderLine>): Validation<OrderError, List<OrderLine>> =
+private fun validateLines(lines: List<UnvalidatedOrderLine>): Validated<OrderError, List<OrderLine>> =
     if (lines.isEmpty()) invalid(OrderError.EmptyCart)
     else lines.validateEach(::validateLine)
 
-private fun validateCurrency(code: String): Validation<OrderError, CurrencyCode> =
+private fun validateCurrency(code: String): Validated<OrderError, CurrencyCode> =
     if (code.uppercase() in SUPPORTED_CURRENCIES) valid(CurrencyCode(code.uppercase()))
     else invalid(OrderError.UnsupportedCurrency(code))
 
-private fun validateAddress(address: UnvalidatedShippingAddress): Validation<OrderError, ShippingAddress> = combine(
+private fun validateAddress(address: UnvalidatedShippingAddress): Validated<OrderError, ShippingAddress> = accumulate(
     requireNotBlank(address.street, "street"),
     requireNotBlank(address.city, "city"),
     requireNotBlank(address.postalCode, "postalCode"),
     validateShippingCountry(address.country),
 ) { street, city, postalCode, country -> ShippingAddress(street, city, postalCode, country) }
 
-private fun requireNotBlank(value: String, field: String): Validation<OrderError, String> =
+private fun requireNotBlank(value: String, field: String): Validated<OrderError, String> =
     if (value.isNotBlank()) valid(value) else invalid(OrderError.BlankAddressField(field))
 
-private fun validateShippingCountry(value: String): Validation<OrderError, CountryCode> =
+private fun validateShippingCountry(value: String): Validated<OrderError, CountryCode> =
     if (value.length == 2 && value.all(Char::isLetter)) valid(CountryCode(value.uppercase()))
     else invalid(OrderError.InvalidShippingCountry(value))
 
@@ -114,7 +114,7 @@ private fun validateShippingCountry(value: String): Validation<OrderError, Count
  * Valide une commande : panier non vide, chaque ligne, l'adresse et la devise.
  * Toutes les erreurs sont accumulées en un seul passage.
  */
-fun UnvalidatedOrder.validate(): Validation<OrderError, Order> = combine(
+fun UnvalidatedOrder.validate(): Validated<OrderError, Order> = accumulate(
     validateLines(lines),
     validateAddress(shipping),
     validateCurrency(currency),

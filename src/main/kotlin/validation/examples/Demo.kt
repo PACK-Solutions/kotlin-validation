@@ -14,7 +14,7 @@ fun main() {
 }
 
 private fun demoPerson() {
-    println("=== Personne (Unvalidated -> validate -> combine) ===")
+    println("=== Personne (Unvalidated -> validate -> accumulate) ===")
     println(
         UnvalidatedPerson(
             firstName = "Marie",
@@ -38,7 +38,7 @@ private fun demoPerson() {
 }
 
 private fun demoOrder() {
-    println("\n=== Commande (validateEach sur les lignes + combine) ===")
+    println("\n=== Commande (validateEach sur les lignes + accumulate) ===")
     val address = UnvalidatedShippingAddress("12 rue des Lilas", "Lyon", "69003", "FR")
     println(
         UnvalidatedOrder(
@@ -57,7 +57,7 @@ private fun demoOrder() {
 }
 
 private fun demoTransfer() {
-    println("\n=== Virement (combine puis andThen dépendant du solde) ===")
+    println("\n=== Virement (accumulate puis andThen dépendant du solde) ===")
     val balance = 100_00L
     println(TransferRequest(amountCents = 50_00, targetIban = "FR76 3000 6000 0112 3456 7890 189").validate(balance))
     println(TransferRequest(amountCents = -1, targetIban = "oops").validate(balance))
@@ -65,7 +65,7 @@ private fun demoTransfer() {
 }
 
 private fun demoRegistration() {
-    println("\n=== Inscription (DSL validation) ===")
+    println("\n=== Inscription (builder validated) ===")
     println(
         RegistrationForm(
             email = "alice@example.com",

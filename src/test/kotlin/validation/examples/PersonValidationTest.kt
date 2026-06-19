@@ -1,10 +1,12 @@
 package validation.examples
 
+import com.github.michaelbull.result.Err
+import com.github.michaelbull.result.get
+import com.github.michaelbull.result.getError
 import org.junit.jupiter.api.Test
-import validation.Invalid
 import java.time.LocalDate
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
 
 class PersonValidationTest {
 
@@ -21,8 +23,7 @@ class PersonValidationTest {
 
         val result = raw.validate()
 
-        assertTrue(result.isValid)
-        val person = result.getOrNull()!!
+        val person = assertNotNull(result.get())
         assertEquals("Marie", person.firstName)
         assertEquals(BirthDate(LocalDate.of(1990, 2, 21)), person.birth)
         assertEquals(CivilStatus.MRS, person.civilStatus)
@@ -42,7 +43,6 @@ class PersonValidationTest {
 
         val result = raw.validate()
 
-        assertTrue(result.isInvalid)
         assertEquals(
             setOf(
                 PersonError.FirstNameTooLong(51),
@@ -52,7 +52,7 @@ class PersonValidationTest {
                 PersonError.InvalidSocialSecurityNumber(""),
                 PersonError.NationalitiesEmpty,
             ),
-            result.errorsOrEmpty().toSet(),
+            result.getError().orEmpty().toSet(),
         )
     }
 
@@ -70,7 +70,7 @@ class PersonValidationTest {
         val result = raw.validate()
 
         assertEquals(
-            Invalid(listOf(PersonError.InvalidCountryCode("FRA"), PersonError.InvalidCountryCode("X"))),
+            Err(listOf(PersonError.InvalidCountryCode("FRA"), PersonError.InvalidCountryCode("X"))),
             result,
         )
     }
@@ -91,7 +91,7 @@ class PersonValidationTest {
                 PersonError.InvalidSocialSecurityNumber(""),
                 PersonError.NationalitiesEmpty,
             ),
-            result.errorsOrEmpty().toSet(),
+            result.getError().orEmpty().toSet(),
         )
     }
 }

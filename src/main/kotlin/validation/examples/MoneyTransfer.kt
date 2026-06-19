@@ -1,8 +1,8 @@
 package validation.examples
 
-import validation.Validation
-import validation.andThen
-import validation.combine
+import com.github.michaelbull.result.andThen
+import validation.Validated
+import validation.accumulate
 import validation.invalid
 import validation.valid
 
@@ -10,10 +10,10 @@ import validation.valid
  * Exemple : validation d'un virement bancaire.
  *
  * Illustre la combinaison des deux modes :
- *  - les contrôles de *format* indépendants (montant, IBAN) sont accumulés via [combine] ;
- *  - puis [andThen] enchaîne un contrôle *dépendant* (solde suffisant) qui a besoin du
- *    montant déjà validé. Ce contrôle ne s'exécute que si le format est correct — inutile
- *    de vérifier le solde tant qu'on ne connaît pas un montant valide.
+ *  - les contrôles de *format* indépendants (montant, IBAN) sont accumulés via [accumulate] ;
+ *  - puis `andThen` (fourni par kotlin-result) enchaîne un contrôle *dépendant* (solde suffisant)
+ *    qui a besoin du montant déjà validé. Ce contrôle ne s'exécute que si le format est correct —
+ *    inutile de vérifier le solde tant qu'on ne connaît pas un montant valide.
  */
 
 /** Montant en centimes (évite les flottants). */
@@ -37,10 +37,10 @@ sealed interface TransferError {
     data class InsufficientFunds(val balanceCents: Long, val amountCents: Long) : TransferError
 }
 
-private fun validateAmount(cents: Long): Validation<TransferError, Money> =
+private fun validateAmount(cents: Long): Validated<TransferError, Money> =
     if (cents > 0) valid(Money(cents)) else invalid(TransferError.NonPositiveAmount(cents))
 
-private fun validateIban(value: String): Validation<TransferError, Iban> {
+private fun validateIban(value: String): Validated<TransferError, Iban> {
     val normalized = value.replace(" ", "").uppercase()
     val wellFormed = normalized.length in 15..34 &&
         normalized.take(2).all(Char::isLetter) &&
@@ -53,8 +53,8 @@ private fun validateIban(value: String): Validation<TransferError, Iban> {
  *
  * Format (montant + IBAN) accumulé d'abord, puis vérification dépendante du solde.
  */
-fun TransferRequest.validate(balanceCents: Long): Validation<TransferError, Transfer> =
-    validateAmount(amountCents).combine(validateIban(targetIban)) { amount, target -> Transfer(amount, target) }
+fun TransferRequest.validate(balanceCents: Long): Validated<TransferError, Transfer> =
+    accumulate(validateAmount(amountCents), validateIban(targetIban)) { amount, target -> Transfer(amount, target) }
         .andThen { transfer ->
             if (transfer.amount.cents <= balanceCents) valid(transfer)
             else invalid(TransferError.InsufficientFunds(balanceCents, transfer.amount.cents))

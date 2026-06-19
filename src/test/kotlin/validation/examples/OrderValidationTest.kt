@@ -1,8 +1,10 @@
 package validation.examples
 
+import com.github.michaelbull.result.get
+import com.github.michaelbull.result.getError
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
 
 class OrderValidationTest {
 
@@ -18,8 +20,7 @@ class OrderValidationTest {
 
         val result = raw.validate()
 
-        assertTrue(result.isValid)
-        val order = result.getOrNull()!!
+        val order = assertNotNull(result.get())
         assertEquals(2, order.lines.size)
         assertEquals(CurrencyCode("EUR"), order.currency)
         assertEquals(CountryCode("FR"), order.shipping.country)
@@ -44,13 +45,13 @@ class OrderValidationTest {
                 OrderError.InvalidShippingCountry("FRA"),
                 OrderError.UnsupportedCurrency("XXX"),
             ),
-            result.errorsOrEmpty().toSet(),
+            result.getError().orEmpty().toSet(),
         )
     }
 
     @Test
     fun rejectsEmptyCart() {
         val raw = UnvalidatedOrder(lines = emptyList(), shipping = goodAddress, currency = "EUR")
-        assertEquals(listOf(OrderError.EmptyCart), raw.validate().errorsOrEmpty())
+        assertEquals(listOf(OrderError.EmptyCart), raw.validate().getError().orEmpty())
     }
 }

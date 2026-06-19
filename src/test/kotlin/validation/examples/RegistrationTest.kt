@@ -1,7 +1,8 @@
 package validation.examples
 
+import com.github.michaelbull.result.Ok
+import com.github.michaelbull.result.getError
 import org.junit.jupiter.api.Test
-import validation.Valid
 import kotlin.test.assertEquals
 
 class RegistrationTest {
@@ -15,7 +16,7 @@ class RegistrationTest {
             age = 30,
             termsAccepted = true,
         ).validate()
-        assertEquals(Valid(Account(Email("alice@example.com"), 30)), result)
+        assertEquals(Ok(Account(Email("alice@example.com"), 30)), result)
     }
 
     @Test
@@ -36,7 +37,7 @@ class RegistrationTest {
                 RegistrationError.Underage(15),
                 RegistrationError.TermsNotAccepted,
             ),
-            result.errorsOrEmpty().toSet(),
+            result.getError().orEmpty().toSet(),
         )
     }
 }
